@@ -1,0 +1,12 @@
+[project]
+name = "logmine-bench"
+version = "0.1.0"
+description = "Drain log template mining with Gemini escalation, benchmarked on LogHub"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

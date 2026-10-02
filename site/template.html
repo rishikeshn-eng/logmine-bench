@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Log Template Miner</title>
+<style>
+:root{--bg:#fafaf7;--fg:#1c1c1a;--mut:#6b6b66;--card:#fff;--bd:#e3e2dc;--ac:#2a6f6b;--warn:#c2410c;--bar:#9db8b5}
+@media(prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe6;--mut:#9a9992;--card:#1f1f1c;--bd:#33332f;--ac:#6cc2bc;--warn:#fb923c;--bar:#3d5a57}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 16px 64px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 8px}
+p.sub{color:var(--mut);margin:0 0 16px}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px 16px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--bd)}th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600}.num{font-variant-numeric:tabular-nums}.bad{color:var(--warn)}
+select{font:inherit;padding:6px 8px;background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:6px}
+.row{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);cursor:pointer}
+.tpl{flex:1;min-width:0;font:12.5px ui-monospace,monospace;overflow-wrap:anywhere}.tpl b{color:var(--ac)}
+.cnt{width:56px;text-align:right;color:var(--mut)}svg{display:block}.ex{font:12px ui-monospace,monospace;color:var(--mut);padding:4px 0 8px 0;display:none;overflow-wrap:anywhere}
+.row.open+.ex{display:block}.note{font-size:12.5px;color:var(--mut)}.pill{background:var(--warn);color:#fff;border-radius:99px;padding:0 7px;font-size:11px}
+@media(max-width:600px){.hide-s{display:none}}
+</style></head><body><main>
+<h1>Log Template Miner</h1>
+<p class="sub">Drain parses every line; only suspect clusters would go to Gemini. Real LogHub-2k logs, scored against the published Drain baselines.</p>
+<div class="card"><div id="bench"></div><p class="note" id="benchnote"></p></div>
+<h2>Template tree <select id="ds"></select></h2>
+<div class="card"><div id="tree"></div><p class="note">Click a template to see an example line. <span class="pill">spike</span> marks windows where a template's count is a robust z-score outlier (median/MAD, z&gt;4, count&ge;5).</p></div>
+</main>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent);
+const f=x=>x==null?'–':x.toFixed(3);
+function bench(){
+ const hasL=D.results.some(r=>'hybrid_GA' in r);
+ let h='<table><tr><th>Dataset</th><th>Lines</th><th class="hide-s">True templates</th><th>Published Drain GA</th><th>This Drain GA</th><th class="hide-s">Generic-mask GA</th>'+(hasL?'<th>Hybrid GA</th><th class="hide-s">Hard clusters</th><th class="hide-s">$/M lines*</th>':'')+'</tr>';
+ for(const r of D.results){
+  h+=`<tr><td>${r.dataset}</td><td class="num">${r.lines}</td><td class="num hide-s">${r.true_templates}</td><td class="num">${f(r.published_drain_GA)}</td><td class="num">${f(r.drain_GA)}</td><td class="num hide-s ${r.generic_GA<.7?'bad':''}">${f(r.generic_GA)}</td>`+(hasL?`<td class="num">${f(r.hybrid_GA)}</td><td class="num hide-s">${r.hard_clusters}</td><td class="num hide-s">${r.usd_per_million_lines_upper==null?'–':r.usd_per_million_lines_upper.toFixed(2)}</td>`:'')+'</tr>';}
+ document.getElementById('bench').innerHTML=h+'</table>';
+ document.getElementById('benchnote').innerHTML=`GA = grouping accuracy. "This Drain" uses the per-dataset settings from the logparser benchmark, so matching the published column is the correctness check, not a win. "Generic-mask GA" uses one set of masks for everything. `+
+  (hasL?`Hybrid column: LLM mode <b>${D.llm_mode}</b>`+(D.llm_mode==='oracle'?' (ground-truth replay: an upper bound, not Gemini output).':'.')+` *Token cost modelled at $${D.price_in_per_m}/M in, $${D.price_out_per_m}/M out (placeholders), extrapolated linearly from the 2k sample, so an upper bound.`:'');
+}
+function spark(s,sp){const w=240,h=22,m=Math.max(...s,1),bw=w/s.length;
+ return `<svg width="${w}" height="${h}" class="hide-s">`+s.map((v,i)=>`<rect x="${i*bw}" y="${h-v/m*h}" width="${bw-1}" height="${Math.max(v/m*h,v?1:0)}" fill="${sp.includes(i)?'var(--warn)':'var(--bar)'}"/>`).join('')+'</svg>';}
+function tree(name){
+ const t=D.trees[name];let h='';
+ for(const n of t){
+  const tpl=n.template.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/&lt;\*>/g,'<b>&lt;*&gt;</b>');
+  h+=`<div class="row" onclick="this.classList.toggle('open')"><div class="tpl">${tpl}</div>${spark(n.series,n.spikes)}${n.spikes.length?'<span class="pill">spike</span>':''}<div class="cnt num">${n.count}</div></div><div class="ex">${n.example.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`;}
+ document.getElementById('tree').innerHTML=h;}
+const sel=document.getElementById('ds');
+for(const n of Object.keys(D.trees)){const o=document.createElement('option');o.textContent=n;sel.appendChild(o);}
+sel.onchange=()=>tree(sel.value);bench();tree(sel.value);
+</script></body></html>
