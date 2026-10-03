@@ -23,6 +23,27 @@ Lines:
 """
 
 
+
+def _post_json(url: str, key: str, body: dict, tries: int = 5) -> dict:
+    """POST with exponential backoff on 429/5xx/network errors (Gemini rate-limits free keys)."""
+    import time
+    import urllib.error
+    data = json.dumps(body).encode()
+    for i in range(tries):
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/json", "x-goog-api-key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or i == tries - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if i == tries - 1:
+                raise
+        time.sleep(min(60, 2 ** (i + 1)))
+
+
 def approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
@@ -60,12 +81,7 @@ class GeminiLLM:
         self.usage = Usage()
 
     def _http(self, body: dict) -> dict:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        req = urllib.request.Request(
-            url, data=json.dumps(body).encode(), method="POST",
-            headers={"Content-Type": "application/json", "x-goog-api-key": self.key})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.load(r)
+        return _post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent", self.key, body)
 
     def template_for(self, examples: list[str], truth_hint: str | None = None) -> str | None:
         prompt = PROMPT.format(wc=WILDCARD, lines="\n".join(examples))
